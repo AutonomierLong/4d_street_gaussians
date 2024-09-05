@@ -15,6 +15,7 @@ from tqdm import tqdm
 from argparse import ArgumentParser, Namespace
 from lib.utils.system_utils import searchForMaxIteration
 import time
+from PIL import Image
 try:
     from torch.utils.tensorboard import SummaryWriter
     TENSORBOARD_FOUND = True
@@ -110,6 +111,14 @@ def training():
         render_pkg = gaussians_renderer.render(viewpoint_cam, gaussians)
         image, acc, viewspace_point_tensor, visibility_filter, radii = render_pkg["rgb"], render_pkg['acc'], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
         depth = render_pkg['depth'] # [1, H, W]
+
+        # image_cpu = image.cpu()
+        # image_numpy = image_cpu.permute(1, 2, 0).detach().numpy()  # 变换维度从 (C, H, W) 到 (H, W, C)
+        # image_pil = Image.fromarray((image_numpy * 255).astype('uint8'))  # 假设图像是0-1范围内的浮点数
+        # image_pil.save('tmp.jpg')
+
+        # import ipdb
+        # ipdb.set_trace()
 
         scalar_dict = dict()
         # rgb loss
@@ -271,6 +280,8 @@ def training():
             # Log and save
             if (iteration in training_args.save_iterations):
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
+                # import ipdb
+                # ipdb.set_trace()
                 scene.save(iteration)
 
             # Densification
@@ -399,6 +410,7 @@ def training_report(tb_writer, iteration, scalar_stats, tensor_stats, testing_it
         torch.cuda.empty_cache()
 
 if __name__ == "__main__":
+    os.environ["CUDA_VISIBLE_DEVICES"] = "5"
     print("Optimizing " + cfg.model_path)
 
     # Initialize system state (RNG)
@@ -406,6 +418,7 @@ if __name__ == "__main__":
 
     # Start GUI server, configure and run training
     torch.autograd.set_detect_anomaly(cfg.train.detect_anomaly)
+    # print("Training strats")
     training()
 
     # All done

@@ -18,6 +18,7 @@ class BasicPointCloud(NamedTuple):
     points : np.array
     colors : np.array
     normals : np.array
+    time : np.array = None
 
 def geom_transform_points(points, transf_matrix):
     P, _ = points.shape
@@ -185,7 +186,13 @@ def get_rays(H, W, K, R, T, perturb=False):
 
 def get_rays_torch(H, W, K, R, T, perturb=False):
     # calculate the camera origin
+    # R = R.cpu()
+    # T = T.cpu()
+    # try:
     rays_o = -torch.matmul(R.T, T).squeeze()
+    # except:
+    #     import ipdb
+    #     ipdb.set_trace()
     # calculate the world coodinates of pixels
     i, j = torch.meshgrid(torch.arange(W, dtype=torch.float32, device=K.device),
                        torch.arange(H, dtype=torch.float32, device=K.device),

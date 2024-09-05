@@ -390,3 +390,36 @@ def quaternion_to_axis_angle(quaternions: torch.Tensor) -> torch.Tensor:
         0.5 - (angles[small_angles] * angles[small_angles]) / 48
     )
     return quaternions[..., 1:] / sin_half_angles_over_angles
+
+def build_rotation_4d(l, r):
+    l_norm = torch.norm(l, dim=-1, keepdim=True)
+    r_norm = torch.norm(r, dim=-1, keepdim=True)
+
+    q_l = l / l_norm
+    q_r = r / r_norm
+
+    a, b, c, d = q_l.unbind(-1)
+    p, q, r, s = q_r.unbind(-1)
+
+    M_l = torch.stack([a,-b,-c,-d,
+                       b, a,-d, c,
+                       c, d, a,-b,
+                       d,-c, b, a]).view(4,4,-1).permute(2,0,1)
+    M_r = torch.stack([ p, q, r, s,
+                       -q, p,-s, r,
+                       -r, s, p,-q,
+                       -s,-r, q, p]).view(4,4,-1).permute(2,0,1)
+    A = M_l @ M_r
+    return A
+
+def build_scaling_rotation_4d(s, l, r):
+    L = torch.zeros((s.shape[0], 4, 4), dtype=torch.float, device="cuda")
+    R = build_rotation_4d(l, r)
+
+    L[:,0,0] = s[:,0]
+    L[:,1,1] = s[:,1]
+    L[:,2,2] = s[:,2]
+    L[:,3,3] = s[:,3]
+
+    L = R @ L
+    return L

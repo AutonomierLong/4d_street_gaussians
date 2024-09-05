@@ -85,6 +85,9 @@ class SkyCubeMap(nn.Module):
         else:
             mask = None
 
+        # import ipdb
+        # ipdb.set_trace()
+
         # R, T should be in w2c format
         # rays_d: [H, W, 3]
         w2c = camera.world_view_transform.transpose(0, 1)

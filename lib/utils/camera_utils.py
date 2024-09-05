@@ -26,6 +26,7 @@ class Camera(nn.Module):
         scale = 1.0,
         metadata = dict(),
         masks = dict(),
+        timestamp = 0.0
     ):
         super(Camera, self).__init__()
 
@@ -37,6 +38,7 @@ class Camera(nn.Module):
         self.K = K
         self.image_name = image_name
         self.trans, self.scale = trans, scale
+        self.timestamp = timestamp
 
         # meta and mask
         self.meta = metadata
@@ -47,6 +49,8 @@ class Camera(nn.Module):
         self.image_height, self.image_width = self.original_image.shape[1], self.original_image.shape[2]
         self.zfar = 1000.0
         self.znear = 0.001
+        # import ipdb
+        # ipdb.set_trace()
         self.world_view_transform = torch.tensor(getWorld2View2(R, T, trans, scale)).transpose(0, 1).cuda()
         
         if self.K is not None:
@@ -204,6 +208,7 @@ def loadCam(cam_info: CameraInfo, resolution_scale):
         masks=masks,
         image_name=cam_info.image_name, 
         metadata=metadata,
+        timestamp=cam_info.timestamp
     )
 
 def cameraList_from_camInfos(cam_infos, resolution_scale):

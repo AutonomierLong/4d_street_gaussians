@@ -18,6 +18,7 @@ class CameraInfo(NamedTuple):
     metadata: dict = dict()
     mask: np.array = None
     acc_mask: np.array = None
+    timestamp: float=0.0
             
 class SceneInfo(NamedTuple):
     point_cloud: BasicPointCloud

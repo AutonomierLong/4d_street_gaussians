@@ -16,6 +16,9 @@ class GaussianModelActor(GaussianModel):
         model_name, 
         obj_meta, 
     ):
+        self.gaussian_dim = 4
+        rot_4d = True
+        
         # parse obj_meta
         self.obj_meta = obj_meta
         
@@ -32,7 +35,7 @@ class GaussianModelActor(GaussianModel):
         self.fourier_dim = cfg.model.gaussian.get('fourier_dim', 1)
         self.fourier_scale = cfg.model.gaussian.get('fourier_scale', 1.)
         
-        # bbox
+        # bbox # I guess bbox is for bounding box.
         length, width, height = obj_meta['length'], obj_meta['width'], obj_meta['height']
         self.bbox = np.array([length, width, height]).astype(np.float32)
         xyz = torch.tensor(self.bbox).float().cuda()
@@ -43,7 +46,7 @@ class GaussianModelActor(GaussianModel):
 
         num_classes = 1 if cfg.data.get('use_semantic', False) else 0
         self.num_classes_global = cfg.data.num_classes if cfg.data.get('use_semantic', False) else 0        
-        super().__init__(model_name=model_name, num_classes=num_classes)
+        super().__init__(model_name=model_name, num_classes=num_classes, gaussian_dim=4, rot_4d=True)
         
         self.flip_prob = cfg.model.gaussian.get('flip_prob', 0.) if not self.deformable else 0.
         self.flip_axis = 1 
@@ -82,6 +85,7 @@ class GaussianModelActor(GaussianModel):
         return features
            
     def create_from_pcd(self, spatial_lr_scale):
+        self.gaussian_dim = 4
         pointcloud_path = os.path.join(cfg.model_path, 'input_ply', f'points3D_{self.model_name}.ply')   
         if os.path.exists(pointcloud_path):
             pcd = fetchPly(pointcloud_path)
@@ -140,11 +144,24 @@ class GaussianModelActor(GaussianModel):
         features_rest = torch.zeros(fused_color.shape[0], 3, (self.max_sh_degree + 1) ** 2 - 1).float().cuda()
         features_dc[:, :3, 0] = fused_color
 
+        if self.gaussian_dim == 4:
+            if pcd.time is None:
+                fused_times = (torch.rand(fused_point_cloud.shape[0], 1, device="cuda") * 1.2 - 0.1) * (self.time_duration[1] - self.time_duration[0]) + self.time_duration[0]
+            else:
+                fused_times = torch.from_numpy(pcd.time).cuda().float()
+
         print(f"Number of points at initialisation for {self.model_name}: ", fused_point_cloud.shape[0])
         dist2 = torch.clamp_min(distCUDA2(torch.from_numpy(np.asarray(pointcloud_xyz)).float().cuda()), 0.0000001)
         scales = torch.log(torch.sqrt(dist2))[..., None].repeat(1, 3)
         rots = torch.zeros((fused_point_cloud.shape[0], 4)).cuda()
         rots[:, 0] = 1
+        if self.gaussian_dim == 4:
+            # dist_t = torch.clamp_min(distCUDA2(fused_times.repeat(1,3)), 1e-10)[...,None]
+            dist_t = torch.zeros_like(fused_times, device="cuda") + (self.time_duration[1] - self.time_duration[0]) / 5
+            scales_t = torch.log(torch.sqrt(dist_t))
+            if self.rot_4d:
+                rots_r = torch.zeros((fused_point_cloud.shape[0], 4), device="cuda")
+                rots_r[:, 0] = 1
 
         opacities = inverse_sigmoid(0.1 * torch.ones((fused_point_cloud.shape[0], 1))).float().cuda()
         semantics = torch.zeros((fused_point_cloud.shape[0], self.num_classes)).float().cuda()
@@ -160,6 +177,12 @@ class GaussianModelActor(GaussianModel):
         self._opacity = nn.Parameter(opacities.requires_grad_(True))
         self._semantic = nn.Parameter(semantics.requires_grad_(True))
         self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
+
+        if self.gaussian_dim == 4:
+            self._t = nn.Parameter(fused_times.requires_grad_(True))
+            self._scaling_t = nn.Parameter(scales_t.requires_grad_(True))
+            if self.rot_4d:
+                self._rotation_r = nn.Parameter(rots_r.requires_grad_(True))
 
 
     def training_setup(self):
@@ -188,6 +211,14 @@ class GaussianModelActor(GaussianModel):
             {'params': [self._rotation], 'lr': rotation_lr, "name": "rotation"},
             {'params': [self._semantic], 'lr': semantic_lr, "name": "semantic"},
         ]
+        if self.gaussian_dim == 4: # TODO: tune time_lr_scale
+            if args.position_t_lr_init < 0:
+                args.position_t_lr_init = args.position_lr_init
+            self.t_gradient_accum = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
+            l.append({'params': [self._t], 'lr': args.position_t_lr_init * self.spatial_lr_scale, "name": "t"})
+            l.append({'params': [self._scaling_t], 'lr': args.scaling_lr, "name": "scaling_t"})
+            if self.rot_4d:
+                l.append({'params': [self._rotation_r], 'lr': args.rotation_lr, "name": "rotation_r"})
         
         self.percent_dense = args.percent_dense
         self.percent_big_ws = args.percent_big_ws
@@ -199,11 +230,11 @@ class GaussianModelActor(GaussianModel):
             max_steps=args.position_lr_max_steps
         )
         
-        self.densify_and_prune_list = ['xyz, f_dc, f_rest, opacity, scaling, rotation, semantic']
+        self.densify_and_prune_list = ['xyz, f_dc, f_rest, opacity, scaling, rotation, semantic, t, scaling_t, rotation_r']
         self.scalar_dict = dict()
         self.tensor_dict = dict()  
             
-    def densify_and_prune(self, max_grad, min_opacity, prune_big_points):
+    def densify_and_prune(self, max_grad, min_opacity, prune_big_points, max_grad_t=None):
         if not (self.random_initialization or self.deformable):
             max_grad = cfg.optim.get('densify_grad_threshold_obj', max_grad)
             if cfg.optim.get('densify_grad_abs_obj', False):
@@ -215,11 +246,17 @@ class GaussianModelActor(GaussianModel):
         
         grads[grads.isnan()] = 0.0
 
+        if self.gaussian_dim == 4:
+                grads_t = self.t_gradient_accum / self.denom
+                grads_t[grads_t.isnan()] = 0.0
+        else:
+            grads_t = None
+
         # Clone and Split
         # extent = self.get_extent()
         extent = self.extent
-        self.densify_and_clone(grads, max_grad, extent)
-        self.densify_and_split(grads, max_grad, extent)
+        self.densify_and_clone(grads, max_grad, extent, grads_t, max_grad_t)
+        self.densify_and_split(grads, max_grad, extent, grads_t, max_grad_t)
 
         # Prune points below opacity
         prune_mask = (self.get_opacity < min_opacity).squeeze()

@@ -102,7 +102,9 @@ def readWaymoFullInfo(path, images='images', split_train=-1, split_test=-1, **kw
 
     ########################################################################################################################
     cam_infos = []
+    # print(cams_timestamps.min())
     for i in tqdm(range(len(exts))):
+    # for i in tqdm(range(2)):
         # generate pose and image
         ext = exts[i]
         ixt = ixts[i]
@@ -187,7 +189,9 @@ def readWaymoFullInfo(path, images='images', split_train=-1, split_test=-1, **kw
             image=image, image_path=image_path, image_name=image_name,
             width=width, height=height, 
             mask=mask,
-            metadata=metadata)
+            metadata=metadata, 
+            timestamp=cams_timestamps[i])
+        # print(cam_info.timestamp)
         cam_infos.append(cam_info)
         
         # sys.stdout.write('\n')

@@ -185,7 +185,7 @@ class StreetGaussianModel(nn.Module):
         # Build object model
         if self.include_obj:
             for track_id, obj_meta in self.obj_info.items():
-                model_name = f'obj_{track_id:03d}'
+                model_name = f'obj_{track_id:03d}' # convert track_id to three digits.
                 setattr(self, model_name, GaussianModelActor(model_name=model_name, obj_meta=obj_meta))
                 self.model_name_id[model_name] = self.models_num
                 self.obj_list.append(model_name)
@@ -309,6 +309,12 @@ class StreetGaussianModel(nn.Module):
         
         scalings = torch.cat(scalings, dim=0)
         return scalings
+
+    @property
+    def get_scalings_bkgd(self):
+        if self.get_visibility('background'):
+            scaling_bkgd = self.background.get_scaling
+        return scaling_bkgd
             
     @property
     def get_rotation(self):
@@ -336,6 +342,15 @@ class StreetGaussianModel(nn.Module):
 
         rotations = torch.cat(rotations, dim=0)
         return rotations
+
+    @property
+    def get_rotations_bkgd(self):
+        if self.get_visibility('background'):            
+            rotations_bkgd = self.background.get_rotation
+            if self.use_pose_correction:
+                rotations_bkgd = self.pose_correction.correct_gaussian_rotation(self.viewpoint_camera, rotations_bkgd)            
+
+        return rotations_bkgd
     
     @property
     def get_xyz(self):
@@ -364,7 +379,15 @@ class StreetGaussianModel(nn.Module):
 
         xyzs = torch.cat(xyzs, dim=0)
 
-        return xyzs            
+        return xyzs       
+
+    @property 
+    def get_xyz_bkgd(self):
+        if self.get_visibility('background'):
+            xyz_bkgd = self.background.get_xyz
+            if self.use_pose_correction:
+                xyz_bkgd = self.pose_correction.correct_gaussian_xyz(self.viewpoint_camera, xyz_bkgd)
+        return xyz_bkgd
 
     @property
     def get_features(self):                
@@ -451,10 +474,28 @@ class StreetGaussianModel(nn.Module):
         
         opacities = torch.cat(opacities, dim=0)
         return opacities
+
+    @property 
+    def get_opacity_bkgd(self):
+        # opacities = []
+        if self.get_visibility('background'):
+            opacity_bkgd = self.background.get_opacity
+            # opacities.append(opacity_bkgd)
+        # opacities = torch.cat(opacities, dim=0)
+        return opacity_bkgd
+
             
     def get_covariance(self, scaling_modifier = 1):
-        scaling = self.get_scoaling # [N, 1]
+        scaling = self.get_scaling # [N, 1]
         rotation = self.get_rotation # [N, 4]
+        L = build_scaling_rotation(scaling_modifier * scaling, rotation)
+        actual_covariance = L @ L.transpose(1, 2)
+        symm = strip_symmetric(actual_covariance)
+        return symm
+
+    def get_cov_bkgd(self, scaling_modifier = 1):
+        scaling = self.get_scalings_bkgd
+        rotation = self.get_rotations_bkgd
         L = build_scaling_rotation(scaling_modifier * scaling, rotation)
         actual_covariance = L @ L.transpose(1, 2)
         symm = strip_symmetric(actual_covariance)

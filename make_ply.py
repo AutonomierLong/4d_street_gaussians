@@ -1,12 +1,17 @@
 import numpy as np
 import os
 import shutil
+import torch
 from lib.config import cfg
 from lib.models.street_gaussian_model import StreetGaussianModel
 from lib.models.gaussian_model import GaussianModel
+from lib.models.gaussian_model_actor import GaussianModelActor
 from lib.datasets.dataset import Dataset
 from lib.models.scene import Scene
 from plyfile import PlyData, PlyElement
+
+from lib.utils.camera_utils import Camera, make_rasterizer
+from lib.utils.general_utils import quaternion_to_matrix
 
 
 inverse_opacity = lambda x: np.log(x/(1-x))
@@ -35,15 +40,56 @@ if __name__ == '__main__':
     gaussians.set_visibility(list(set(gaussians.model_name_id.keys())))
     gaussians.parse_camera(camera=viewpoint_camera)
 
-    xyz = gaussians.get_xyz.detach().cpu().numpy()    
+    means3D = []
+    opacity = []
+
+    means3D.append(gaussians.get_xyz_bkgd)
+    opacity.append(gaussians.get_opacity_bkgd)
+
+    if len(gaussians.graph_obj_list) > 0:
+        xyzs_local = []
+
+        for i, obj_name in enumerate(gaussians.graph_obj_list):
+            obj_model: GaussianModelActor = getattr(gaussians, obj_name)
+            xyz_local = obj_model.get_xyz
+            #xyzs_local.append(xyz_local)
+
+            opacity_obj = obj_model.get_opacity
+            marginal_t = obj_model.get_marginal_t(viewpoint_camera.timestamp)
+            # print(viewpoint_camera.timestamp)
+            opacity_obj = opacity_obj * marginal_t
+            opacity.append(opacity_obj)
+
+            try:
+                cov3D_obj, delta_mean = obj_model.get_current_covariance_and_mean_offset(1, viewpoint_camera.timestamp)
+            except:
+                import ipdb
+                ipdb.set_trace()
+            xyz_local = xyz_local + delta_mean
+            xyzs_local.append(xyz_local)
+            
+        xyzs_local = torch.cat(xyzs_local, dim=0)
+        xyzs_local = xyzs_local.clone()
+        xyzs_local[gaussians.flip_mask, gaussians.flip_axis] *= -1
+        obj_rots = quaternion_to_matrix(gaussians.obj_rots)
+        xyzs_obj = torch.einsum('bij, bj -> bi', obj_rots, xyzs_local) + gaussians.obj_trans
+        means3D.append(xyzs_obj)
+        # opacity.append(opacity_objs)
+
+    means3D = torch.cat(means3D, dim=0)
+    opacity = torch.cat(opacity, dim=0)
+
+    # xyz = gaussians.get_xyz.detach().cpu().numpy()    
+    xyz = means3D.detach().cpu().numpy()
     normals = np.zeros_like(xyz)
     
     f = gaussians.get_features.detach().transpose(1, 2).contiguous() # [n, 3, sh_degree]
     f_dc = f[..., :1].flatten(start_dim=1).cpu().numpy()
     f_rest = f[..., 1:].flatten(start_dim=1).cpu().numpy()
-    opacities = gaussians.get_opacity.detach().cpu().numpy()
-    opacities = np.clip(opacities, a_min=1e-6, a_max=1.-1e-6)
-    opacities = inverse_opacity(opacities)
+    # opacities = gaussians.get_opacity.detach().cpu().numpy()
+    opacity = opacity.detach().cpu().numpy()
+    opacity = np.clip(opacity, a_min=1e-6, a_max=1.-1e-6)
+    opacity = inverse_opacity(opacity)
     
     scale = gaussians.get_scaling.detach().cpu().numpy()
     scale = inverse_scale(scale)
@@ -64,7 +110,7 @@ if __name__ == '__main__':
     dtype_full = [(attribute, 'f4') for attribute in l]
 
     elements = np.empty(xyz.shape[0], dtype=dtype_full)
-    attributes = np.concatenate((xyz, normals, f_dc, f_rest, opacities, scale, rotation), axis=1)
+    attributes = np.concatenate((xyz, normals, f_dc, f_rest, opacity, scale, rotation), axis=1)
     elements[:] = list(map(tuple, attributes))
     
     save_dir = os.path.join(cfg.model_path, 'viewer', f'{frame_id:06d}')

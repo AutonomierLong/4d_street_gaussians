@@ -17,6 +17,7 @@ class GaussianModelBkgd(GaussianModel):
         sphere_center=np.array([0, 0, 0]),
         sphere_radius=20,
     ):
+        self.gaussian_dim = 3
         self.scene_center = torch.from_numpy(scene_center).float().cuda()
         self.scene_radius = torch.tensor([scene_radius]).float().cuda()
         self.sphere_center = torch.from_numpy(sphere_center).float().cuda()

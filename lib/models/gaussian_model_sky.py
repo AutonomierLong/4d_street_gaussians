@@ -16,6 +16,7 @@ class GaussinaModelSky(GaussianModel):
         sphere_radius=20,
     ):
         super().__init__(model_name=model_name, num_classes=num_classes)
+        self.gaussian_dim = 3
         self.sphere_center = torch.from_numpy(sphere_center).float().cuda()
         self.sphere_radius = torch.Tensor([sphere_radius]).float().cuda()
         

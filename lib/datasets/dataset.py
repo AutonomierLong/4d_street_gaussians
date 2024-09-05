@@ -28,6 +28,7 @@ class Dataset():
         assert dataset_type in sceneLoadTypeCallbacks.keys(), 'Could not recognize scene type!'
         
         scene_info: SceneInfo = sceneLoadTypeCallbacks[dataset_type](self.source_path, **cfg.data)
+        # print(f"dataset type{dataset_type}")
 
         if cfg.mode == 'train':
             print(f'Saving input pointcloud to {os.path.join(self.model_path, "input.ply")}')
