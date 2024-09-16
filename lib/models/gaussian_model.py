@@ -219,7 +219,7 @@ class GaussianModel(nn.Module):
         self._scaling_t = nn.Parameter(torch.tensor(scaling_t, dtype=torch.float, device="cuda").requires_grad_(True))
         self.active_sh_degree = self.max_sh_degree
 
-        if gaussian_dim ==4:
+        if self.gaussian_dim ==4:
             self.active_sh_degree_t = self.max_sh_degree
 
 

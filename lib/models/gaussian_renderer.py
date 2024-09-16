@@ -87,7 +87,7 @@ class GaussianRenderer():
         else:
             scales = pc.get_scaling
             rotations = pc.get_rotation
-            if pc.gaussian_dim = 4:
+            if pc.gaussian_dim == 4:
                 scales_t = pc.get_scaling_t
                 ts = pc.get_t
                 if pc.rot_4d:
@@ -164,15 +164,15 @@ class GaussianRenderer():
             rotations_r = totations_r
         )  
 
-        if cfg.mode != 'train':
-            rendered_color = torch.clamp(rendered_color, 0., 1.)        
-        
-        # Those Gaussians that were frustum culled or had a radius of 0 were not visible.
-        # They will be excluded from value updates used in the splitting criteria.
-        return {"rgb": rendered_color,
-                "acc": rendered_acc,
-                "depth": rendered_depth,
-                "viewspace_points": screenspace_points,
-                "visibility_filter" : radii > 0,
-                "radii": radii, 
-                "flow": flow}
+    if cfg.mode != 'train':
+        rendered_color = torch.clamp(rendered_color, 0., 1.)        
+    
+    # Those Gaussians that were frustum culled or had a radius of 0 were not visible.
+    # They will be excluded from value updates used in the splitting criteria.
+    return {"rgb": rendered_color,
+            "acc": rendered_acc,
+            "depth": rendered_depth,
+            "viewspace_points": screenspace_points,
+            "visibility_filter" : radii > 0,
+            "radii": radii, 
+            "flow": flow}

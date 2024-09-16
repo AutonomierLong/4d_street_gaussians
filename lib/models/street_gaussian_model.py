@@ -89,6 +89,7 @@ class StreetGaussianModel(nn.Module):
             if model_name in ['background', 'sky']:
                 model.create_from_pcd(pcd, spatial_lr_scale)
             else:
+                print(model_name)
                 model.create_from_pcd(spatial_lr_scale)
 
     def save_ply(self, path):

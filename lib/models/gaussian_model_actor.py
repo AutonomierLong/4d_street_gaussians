@@ -85,6 +85,7 @@ class GaussianModelActor(GaussianModel):
         return features
            
     def create_from_pcd(self, spatial_lr_scale):
+        pcd = None
         self.gaussian_dim = 4
         pointcloud_path = os.path.join(cfg.model_path, 'input_ply', f'points3D_{self.model_name}.ply')   
         if os.path.exists(pointcloud_path):
@@ -144,11 +145,15 @@ class GaussianModelActor(GaussianModel):
         features_rest = torch.zeros(fused_color.shape[0], 3, (self.max_sh_degree + 1) ** 2 - 1).float().cuda()
         features_dc[:, :3, 0] = fused_color
 
-        if self.gaussian_dim == 4:
-            if pcd.time is None:
-                fused_times = (torch.rand(fused_point_cloud.shape[0], 1, device="cuda") * 1.2 - 0.1) * (self.time_duration[1] - self.time_duration[0]) + self.time_duration[0]
-            else:
-                fused_times = torch.from_numpy(pcd.time).cuda().float()
+        try:
+            if self.gaussian_dim == 4:
+                if pcd is None or pcd.time is None:
+                    fused_times = (torch.rand(fused_point_cloud.shape[0], 1, device="cuda") * 1.2 - 0.1) * (self.time_duration[1] - self.time_duration[0]) + self.time_duration[0]
+                else:
+                    fused_times = torch.from_numpy(pcd.time).cuda().float()
+        except: 
+            import ipdb
+            ipdb.set_trace()
 
         print(f"Number of points at initialisation for {self.model_name}: ", fused_point_cloud.shape[0])
         dist2 = torch.clamp_min(distCUDA2(torch.from_numpy(np.asarray(pointcloud_xyz)).float().cuda()), 0.0000001)

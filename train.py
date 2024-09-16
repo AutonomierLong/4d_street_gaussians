@@ -33,6 +33,8 @@ def training():
     gaussians = StreetGaussianModel(dataset.scene_info.metadata)
     scene = Scene(gaussians=gaussians, dataset=dataset)
 
+    # import ipdb
+    # ipdb.set_trace()
     gaussians.training_setup()
     try:
         if cfg.loaded_iter == -1:
@@ -63,7 +65,7 @@ def training():
 
     viewpoint_stack = None
     for iteration in range(start_iter, training_args.iterations + 1):
-    
+        torch.cuda.empty_cache()
         iter_start.record()
         gaussians.update_learning_rate(iteration)
 
@@ -76,12 +78,17 @@ def training():
         #     if resolution_scales:  
         #         scale = resolution_scales.pop()
 
-
+        # import ipdb
+        # ipdb.set_trace()
         # Pick a random Camera
         if not viewpoint_stack:
             viewpoint_stack = scene.getTrainCameras().copy()
         
-        viewpoint_cam: Camera = viewpoint_stack.pop(randint(0, len(viewpoint_stack) - 1))
+        # viewpoint_cam: Camera = viewpoint_stack.pop(randint(0, len(viewpoint_stack) - 1))
+        viewpoint_cam: Camera = viewpoint_stack.pop(len(viewpoint_stack) - 1)
+
+        # import ipdb
+        # ipdb.set_trace()
     
         # ====================================================================
         # Get mask
@@ -94,6 +101,14 @@ def training():
             mask = viewpoint_cam.original_mask.cuda().bool()
         else:
             mask = torch.ones_like(gt_image[0:1]).bool()
+
+        # try:
+        #     lidar_depth = viewpoint_cam.meta['lidar_depth'].cuda() # [1, H, W]
+        #     depth_mask = torch.logical_and((lidar_depth > 0.), mask)
+        #     tmp = torch.nonzero(depth_mask).any()
+        # except:
+        #     import ipdb
+        #     ipdb.set_trace()
         
         if hasattr(viewpoint_cam, 'original_sky_mask'):
             sky_mask = viewpoint_cam.original_sky_mask.cuda()
@@ -160,10 +175,14 @@ def training():
             # scalar_dict['box_reg_loss'] = box_reg_loss.item()
             # loss += optim_args.lambda_reg * box_reg_loss
 
-            obj_acc_loss = torch.where(obj_bound, 
-                -(acc_obj * torch.log(acc_obj) +  (1. - acc_obj) * torch.log(1. - acc_obj)), 
-                -torch.log(1. - acc_obj)).mean()
-            scalar_dict['obj_acc_loss'] = obj_acc_loss.item()
+            try:
+                obj_acc_loss = torch.where(obj_bound, 
+                    -(acc_obj * torch.log(acc_obj) +  (1. - acc_obj) * torch.log(1. - acc_obj)), 
+                    -torch.log(1. - acc_obj)).mean()
+                scalar_dict['obj_acc_loss'] = obj_acc_loss.item()
+            except:
+                import ipdb
+                ipdb.set_trace()
             loss += optim_args.lambda_reg * obj_acc_loss
             # obj_acc_loss = -((acc_obj * torch.log(acc_obj) +  (1. - acc_obj) * torch.log(1. - acc_obj))).mean()
             # scalar_dict['obj_acc_loss'] = obj_acc_loss.item()
@@ -174,14 +193,20 @@ def training():
             lidar_depth = viewpoint_cam.meta['lidar_depth'].cuda() # [1, H, W]
             depth_mask = torch.logical_and((lidar_depth > 0.), mask)
             # depth_mask[obj_bound] = False
-            if torch.nonzero(depth_mask).any():
-                expected_depth = depth / (render_pkg['acc'] + 1e-10)  
-                depth_error = torch.abs((expected_depth[depth_mask] - lidar_depth[depth_mask]))
-                depth_error, _ = torch.topk(depth_error, int(0.95 * depth_error.size(0)), largest=False)
-                lidar_depth_loss = depth_error.mean()
-                scalar_dict['lidar_depth_loss'] = lidar_depth_loss
-            else:
-                lidar_depth_loss = torch.zeros_like(Ll1)  
+            try:
+                # time.sleep(1)
+                # print(viewpoint_cam.id)
+                if torch.nonzero(depth_mask).any():
+                    expected_depth = depth / (render_pkg['acc'] + 1e-10)  
+                    depth_error = torch.abs((expected_depth[depth_mask] - lidar_depth[depth_mask]))
+                    depth_error, _ = torch.topk(depth_error, int(0.95 * depth_error.size(0)), largest=False)
+                    lidar_depth_loss = depth_error.mean()
+                    scalar_dict['lidar_depth_loss'] = lidar_depth_loss
+                else:
+                    lidar_depth_loss = torch.zeros_like(Ll1)  
+            except:
+                import ipdb
+                ipdb.set_trace()
             loss += optim_args.lambda_depth_lidar * lidar_depth_loss
                     
         # color correction loss

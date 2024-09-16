@@ -169,78 +169,21 @@ class StreetGaussianRenderer():
                 pass
         else:
             screenspace_points = None 
-        
-        if compute_cov3D_python is False:
-            means3D = pc.get_xyz
-            means2D = screenspace_points
-            opacity = pc.get_opacity
 
-            # If precomputed 3d covariance is provided, use it. If not, then it will be computed from
-            # scaling / rotation by the rasterizer.
-            scales = None
-            rotations = None
-            cov3D_precomp = None
-            if compute_cov3D_python:
-                cov3D_precomp = pc.get_covariance(scaling_modifier)
-            else:
-                scales = pc.get_scaling
-                rotations = pc.get_rotation
+        means3D = pc.get_xyz
+        means2D = screenspace_points
+        opacity = pc.get_opacity
+
+        # If precomputed 3d covariance is provided, use it. If not, then it will be computed from
+        # scaling / rotation by the rasterizer.
+        scales = None
+        rotations = None
+        cov3D_precomp = None
+        if compute_cov3D_python:
+            cov3D_precomp = pc.get_covariance(scaling_modifier)
         else:
-            #print(viewpoint_camera.K)
-            means3D = []
-            opacity = []
-            scales = None
-            rotations = None
-            cov3D_precomp = []
-
-            means3D.append(pc.get_xyz_bkgd)
-            opacity.append(pc.get_opacity_bkgd)
-            cov3D_precomp.append(pc.get_cov_bkgd())
-
-            # import ipdb
-            # ipdb.set_trace()
-
-            if len(pc.graph_obj_list) > 0:
-                xyzs_local = []
-                # opacity_objs = []
-                cov3D_objs = []
-
-                for i, obj_name in enumerate(pc.graph_obj_list):
-                    obj_model: GaussianModelActor = getattr(pc, obj_name)
-                    xyz_local = obj_model.get_xyz
-                    #xyzs_local.append(xyz_local)
-
-                    opacity_obj = obj_model.get_opacity
-                    marginal_t = obj_model.get_marginal_t(viewpoint_camera.timestamp)
-                    # print(viewpoint_camera.timestamp)
-                    opacity_obj = opacity_obj * marginal_t
-                    opacity.append(opacity_obj)
-
-                    try:
-                        cov3D_obj, delta_mean = obj_model.get_current_covariance_and_mean_offset(scaling_modifier, viewpoint_camera.timestamp)
-                    except:
-                        import ipdb
-                        ipdb.set_trace()
-                    cov3D_objs.append(cov3D_obj)
-                    xyz_local = xyz_local + delta_mean
-                    xyzs_local.append(xyz_local)
-                    
-                xyzs_local = torch.cat(xyzs_local, dim=0)
-                xyzs_local = xyzs_local.clone()
-                xyzs_local[pc.flip_mask, pc.flip_axis] *= -1
-                obj_rots = quaternion_to_matrix(pc.obj_rots)
-                xyzs_obj = torch.einsum('bij, bj -> bi', obj_rots, xyzs_local) + pc.obj_trans
-                means3D.append(xyzs_obj)
-                cov3D_objs = torch.cat(cov3D_objs, dim=0)
-                cov3D_precomp.append(cov3D_objs)
-                # opacity.append(opacity_objs)
-
-            means3D = torch.cat(means3D, dim=0)
-            opacity = torch.cat(opacity, dim=0)
-            # import ipdb
-            # ipdb.set_trace()
-            cov3D_precomp = torch.cat(cov3D_precomp, dim=0)
-            means2D = screenspace_points
+            scales = pc.get_scaling
+            rotations = pc.get_rotation
 
         # If precomputed colors are provided, use them. Otherwise, if it is desired to precompute colors
         # from SHs in Python, do it. If not, then SH -> RGB conversion will be done by rasterizer.
@@ -248,7 +191,6 @@ class StreetGaussianRenderer():
         colors_precomp = None
         if override_color is None:
             if convert_SHs_python:
-                print("convert_SHs_python")
                 shs_view = pc.get_features.transpose(1, 2).view(-1, 3, (pc.max_sh_degree+1)**2)
                 dir_pp = (pc.get_xyz - viewpoint_camera.camera_center.repeat(pc.get_features.shape[0], 1))
                 dir_pp_normalized = dir_pp / dir_pp.norm(dim=1, keepdim=True)
@@ -511,15 +453,18 @@ class StreetGaussianRenderer():
         
         # Those Gaussians that were frustum culled or had a radius of 0 were not visible.
         # They will be excluded from value updates used in the splitting criteria.
-        
-        result = {
-            "rgb": rendered_color,
-            "acc": rendered_acc,
-            "depth": rendered_depth,
-            "viewspace_points": screenspace_points,
-            "visibility_filter" : radii > 0,
-            "radii": radii
-        }
+        try: 
+            result = {
+                "rgb": rendered_color,
+                "acc": rendered_acc,
+                "depth": rendered_depth,
+                "viewspace_points": screenspace_points,
+                "visibility_filter" : radii > 0,
+                "radii": radii
+            }
+        except:
+            import ipdb
+            ipdb.set_trace()
         
         result.update(rendered_feature_dict)
         
@@ -626,35 +571,11 @@ class StreetGaussianRenderer():
         cov3D_precomp = torch.cat(cov3D_precomp, dim=0)
         means2D = screenspace_points
 
-        try:
-            assert means3D.shape[0] == opacity.shape[0]
-            assert means3D.shape[0] == cov3D_precomp.shape[0]
-        except:
-            import ipdb
-            ipdb.set_trace()
-
-        # means3D = pc.get_xyz
-        # means2D = screenspace_points
-        # opacity = pc.get_opacity
-
-        # # If precomputed 3d covariance is provided, use it. If not, then it will be computed from
-        # # scaling / rotation by the rasterizer.
-        # scales = None
-        # rotations = None
-        # cov3D_precomp = None
-        # if compute_cov3D_python:
-        #     cov3D_precomp = pc.get_covariance(scaling_modifier)
-        # else:
-        #     scales = pc.get_scaling
-        #     rotations = pc.get_rotation
-
-        # If precomputed colors are provided, use them. Otherwise, if it is desired to precompute colors
-        # from SHs in Python, do it. If not, then SH -> RGB conversion will be done by rasterizer.
         shs = None
         colors_precomp = None
         if override_color is None:
             if convert_SHs_python:
-                print("convert_SHs_python")
+                # print("convert_SHs_python")
                 shs_view = pc.get_features.transpose(1, 2).view(-1, 3, (pc.max_sh_degree+1)**2)
                 dir_pp = (pc.get_xyz - viewpoint_camera.camera_center.repeat(pc.get_features.shape[0], 1))
                 dir_pp_normalized = dir_pp / dir_pp.norm(dim=1, keepdim=True)
@@ -689,9 +610,6 @@ class StreetGaussianRenderer():
             features = torch.cat(features, dim=-1)
         else:
             features = None
-        
-        # import ipdb
-        # ipdb.set_trace()
 
         # Rasterize visible Gaussians to image, obtain their radii (on screen). 
         rendered_color, radii, rendered_depth, rendered_acc, rendered_feature = rasterizer(

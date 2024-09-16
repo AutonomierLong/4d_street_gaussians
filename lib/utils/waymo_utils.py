@@ -113,12 +113,12 @@ def get_obj_pose_tracking(datadir, selected_frames, ego_poses, cameras=[0, 1, 2,
     tracklets_ls = []    
     objects_info = {}
 
-    if cfg.data.get('use_tracker', False):
-        tracklet_path = os.path.join(datadir, 'track/track_info_castrack.txt')
-        tracklet_camera_vis_path = os.path.join(datadir, 'track/track_camera_vis_castrack.json')
-    else:
-        tracklet_path = os.path.join(datadir, 'track/track_info.txt')
-        tracklet_camera_vis_path = os.path.join(datadir, 'track/track_camera_vis.json')
+    # if cfg.data.get('use_tracker', False):
+    #     tracklet_path = os.path.join(datadir, 'track/track_info_castrack.txt')
+    #     tracklet_camera_vis_path = os.path.join(datadir, 'track/track_camera_vis_castrack.json')
+    # else:
+    tracklet_path = os.path.join(datadir, 'track/track_info.txt')
+    tracklet_camera_vis_path = os.path.join(datadir, 'track/track_camera_vis.json')
 
     print(f'Loading from : {tracklet_path}')
     f = open(tracklet_path, 'r')
@@ -180,8 +180,10 @@ def get_obj_pose_tracking(datadir, selected_frames, ego_poses, cameras=[0, 1, 2,
     for tracklet in tracklets_array:
         frame_id = int(tracklet[0])
         track_id = int(tracklet[1])
+        # object_class = tracklet[2]
         if start_frame <= frame_id <= end_frame:            
             ego_pose = ego_poses[frame_id]
+            # print(object_class)
             obj_pose_vehicle, obj_pose_world = make_obj_pose(ego_pose, tracklet[6:10])
 
             frame_idx = frame_id - start_frame
@@ -459,6 +461,7 @@ def generate_dataparser_outputs(
         points_xyz_dict['bkgd'] = []
         points_rgb_dict['bkgd'] = []
         for track_id in object_info.keys():
+            print(track_id)
             points_xyz_dict[f'obj_{track_id:03d}'] = []
             points_rgb_dict[f'obj_{track_id:03d}'] = []
 

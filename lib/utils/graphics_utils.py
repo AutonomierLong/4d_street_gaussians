@@ -188,11 +188,11 @@ def get_rays_torch(H, W, K, R, T, perturb=False):
     # calculate the camera origin
     # R = R.cpu()
     # T = T.cpu()
-    # try:
-    rays_o = -torch.matmul(R.T, T).squeeze()
-    # except:
-    #     import ipdb
-    #     ipdb.set_trace()
+    try:
+        rays_o = -torch.matmul(R.T, T).squeeze()
+    except:
+        import ipdb
+        ipdb.set_trace()
     # calculate the world coodinates of pixels
     i, j = torch.meshgrid(torch.arange(W, dtype=torch.float32, device=K.device),
                        torch.arange(H, dtype=torch.float32, device=K.device),

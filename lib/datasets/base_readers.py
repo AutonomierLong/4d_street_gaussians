@@ -87,12 +87,25 @@ def get_Sphere_Norm(xyz):
 
 
 def fetchPly(path):
+    # plydata = PlyData.read(path)
+    # vertices = plydata['vertex']
+    # positions = np.vstack([vertices['x'], vertices['y'], vertices['z']]).T
+    # colors = np.vstack([vertices['red'], vertices['green'], vertices['blue']]).T / 255.0
+    # normals = np.vstack([vertices['nx'], vertices['ny'], vertices['nz']]).T
+    # return BasicPointCloud(points=positions, colors=colors, normals=normals)
     plydata = PlyData.read(path)
     vertices = plydata['vertex']
     positions = np.vstack([vertices['x'], vertices['y'], vertices['z']]).T
     colors = np.vstack([vertices['red'], vertices['green'], vertices['blue']]).T / 255.0
-    normals = np.vstack([vertices['nx'], vertices['ny'], vertices['nz']]).T
-    return BasicPointCloud(points=positions, colors=colors, normals=normals)
+    if 'nx' in vertices:
+        normals = np.vstack([vertices['nx'], vertices['ny'], vertices['nz']]).T
+    else:
+        normals = np.zeros_like(positions)
+    if 'time' in vertices:
+        timestamp = vertices['time'][:, None]
+    else:
+        timestamp = None
+    return BasicPointCloud(points=positions, colors=colors, normals=normals, time=timestamp)
 
 def storePly(path, xyz, rgb):
     # set rgb to 0 - 255
