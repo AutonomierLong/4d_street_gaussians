@@ -16,8 +16,8 @@ class GaussianModelActor(GaussianModel):
         model_name, 
         obj_meta, 
     ):
-        self.gaussian_dim = 4
-        rot_4d = True
+        # self.gaussian_dim = 4
+        # rot_4d = True
         
         # parse obj_meta
         self.obj_meta = obj_meta
@@ -45,8 +45,15 @@ class GaussianModelActor(GaussianModel):
         self.extent = torch.tensor([extent]).float().cuda()   
 
         num_classes = 1 if cfg.data.get('use_semantic', False) else 0
-        self.num_classes_global = cfg.data.num_classes if cfg.data.get('use_semantic', False) else 0        
-        super().__init__(model_name=model_name, num_classes=num_classes, gaussian_dim=4, rot_4d=True)
+        self.num_classes_global = cfg.data.num_classes if cfg.data.get('use_semantic', False) else 0  
+
+        gaussian_dim = 3
+        rot_4d = False
+        if self.deformable:
+            gaussian_dim = 4
+            rot_4d = True
+     
+        super().__init__(model_name=model_name, num_classes=num_classes, gaussian_dim=gaussian_dim, rot_4d=rot_4d)
         
         self.flip_prob = cfg.model.gaussian.get('flip_prob', 0.) if not self.deformable else 0.
         self.flip_axis = 1 
@@ -85,8 +92,17 @@ class GaussianModelActor(GaussianModel):
         return features
            
     def create_from_pcd(self, spatial_lr_scale):
+        print(f"start:{self.time_duration[0]}")
+        print(f"end:{self.time_duration[1]}")
         pcd = None
-        self.gaussian_dim = 4
+        # import ipdb
+        # ipdb.set_trace()
+        if self.deformable:
+            self.gaussian_dim = 4
+            self.rot_4d = True
+        else:
+            self.gaussian_dim = 3
+            self.rot_4d = False
         pointcloud_path = os.path.join(cfg.model_path, 'input_ply', f'points3D_{self.model_name}.ply')   
         if os.path.exists(pointcloud_path):
             pcd = fetchPly(pointcloud_path)
@@ -99,20 +115,51 @@ class GaussianModelActor(GaussianModel):
             self.random_initialization = True
 
         if self.random_initialization is True:
-            points_dim = 20
-            print(f'Creating random pointcloud for {self.model_name}')
-            points_x, points_y, points_z = np.meshgrid(
-                np.linspace(-1., 1., points_dim), np.linspace(-1., 1., points_dim), np.linspace(-1., 1., points_dim),
-            )
-            
-            points_x = points_x.reshape(-1)
-            points_y = points_y.reshape(-1)
-            points_z = points_z.reshape(-1)
+            if os.path.exists(pointcloud_path):
+                pcd = fetchPly(pointcloud_path)
+                pointcloud_xyz_pcd = np.asarray(pcd.points)
+                pointcloud_color_pcd = np.asarray(pcd.colors)
 
-            bbox_xyz_scale = self.bbox / 2.
-            pointcloud_xyz = np.stack([points_x, points_y, points_z], axis=-1)
-            pointcloud_xyz = pointcloud_xyz * bbox_xyz_scale            
-            pointcloud_rgb = np.random.rand(*pointcloud_xyz.shape).astype(np.float32)  
+                points_dim = 20
+                print(f'Creating random pointcloud for {self.model_name}')
+                points_x, points_y, points_z = np.meshgrid(
+                    np.linspace(-1., 1., points_dim), np.linspace(-1., 1., points_dim), np.linspace(-1., 1., points_dim),
+                )
+                
+                points_x = points_x.reshape(-1)
+                points_y = points_y.reshape(-1)
+                points_z = points_z.reshape(-1)
+
+                bbox_xyz_scale = self.bbox / 2.
+                pointcloud_xyz = np.stack([points_x, points_y, points_z], axis=-1)
+                pointcloud_xyz = pointcloud_xyz * bbox_xyz_scale            
+                pointcloud_rgb = np.random.rand(*pointcloud_xyz.shape).astype(np.float32)
+
+                if self.gaussian_dim == 4:
+                    pointcloud_time_pcd = np.asarray(pcd.time).reshape(-1, 1)
+                    pointcloud_time = (np.random.rand(pointcloud_xyz.shape[0], 1)*1.2-0.1)*(self.time_duration[1]-self.time_duration[0]) + self.time_duration[0]
+                    pointcloud_time = np.concatenate((pointcloud_time, pointcloud_time_pcd), axis=0)
+
+                # concatenate original pointcloud and random pointcloud.
+                pointcloud_xyz = np.concatenate((pointcloud_xyz, pointcloud_xyz_pcd), axis=0)
+                pointcloud_rgb = np.concatenate((pointcloud_rgb, pointcloud_color_pcd), axis=0)
+            else:
+                points_dim = 20
+                print(f'Creating random pointcloud for {self.model_name}')
+                points_x, points_y, points_z = np.meshgrid(
+                    np.linspace(-1., 1., points_dim), np.linspace(-1., 1., points_dim), np.linspace(-1., 1., points_dim),
+                )
+                
+                points_x = points_x.reshape(-1)
+                points_y = points_y.reshape(-1)
+                points_z = points_z.reshape(-1)
+
+                bbox_xyz_scale = self.bbox / 2.
+                pointcloud_xyz = np.stack([points_x, points_y, points_z], axis=-1)
+                pointcloud_xyz = pointcloud_xyz * bbox_xyz_scale            
+                pointcloud_rgb = np.random.rand(*pointcloud_xyz.shape).astype(np.float32)  
+                if self.gaussian_dim == 4:
+                    pointcloud_time = (np.random.rand(pointcloud_xyz.shape[0], 1)*1.2-0.1)*(self.time_duration[1]-self.time_duration[0]) + self.time_duration[0]
         elif not self.deformable and self.flip_prob > 0.:          
             pcd = fetchPly(pointcloud_path)
             pointcloud_xyz = np.asarray(pcd.points)
@@ -134,9 +181,15 @@ class GaussianModelActor(GaussianModel):
             pcd = fetchPly(pointcloud_path)
             pointcloud_xyz = np.asarray(pcd.points)
             pointcloud_rgb = np.asarray(pcd.colors)
+            if self.gaussian_dim == 4:
+                pointcloud_time = np.asarray(pcd.time).reshape(-1, 1)
             
         fused_point_cloud = torch.tensor(np.asarray(pointcloud_xyz)).float().cuda()
         fused_color = RGB2SH(torch.tensor(np.asarray(pointcloud_rgb)).float().cuda())
+        if self.gaussian_dim == 4:
+            # import ipdb
+            # ipdb.set_trace()
+            fused_times = torch.from_numpy(np.copy(np.asarray(pointcloud_time))).float().cuda()
 
         # features = torch.zeros((fused_color.shape[0], 3, 
         #                         (self.max_sh_degree + 1) ** 2 * self.fourier_dim)).float().cuda()
@@ -145,15 +198,15 @@ class GaussianModelActor(GaussianModel):
         features_rest = torch.zeros(fused_color.shape[0], 3, (self.max_sh_degree + 1) ** 2 - 1).float().cuda()
         features_dc[:, :3, 0] = fused_color
 
-        try:
-            if self.gaussian_dim == 4:
-                if pcd is None or pcd.time is None:
-                    fused_times = (torch.rand(fused_point_cloud.shape[0], 1, device="cuda") * 1.2 - 0.1) * (self.time_duration[1] - self.time_duration[0]) + self.time_duration[0]
-                else:
-                    fused_times = torch.from_numpy(pcd.time).cuda().float()
-        except: 
-            import ipdb
-            ipdb.set_trace()
+        # try:
+        #     if self.gaussian_dim == 4:
+        #         if pcd is None or pcd.time is None:
+        #             fused_times = (torch.rand(fused_point_cloud.shape[0], 1, device="cuda") * 1.2 - 0.1) * (self.time_duration[1] - self.time_duration[0]) + self.time_duration[0]
+        #         else:
+        #             fused_times = torch.from_numpy(pcd.time).cuda().float()
+        # except: 
+        #     import ipdb
+        #     ipdb.set_trace()
 
         print(f"Number of points at initialisation for {self.model_name}: ", fused_point_cloud.shape[0])
         dist2 = torch.clamp_min(distCUDA2(torch.from_numpy(np.asarray(pointcloud_xyz)).float().cuda()), 0.0000001)

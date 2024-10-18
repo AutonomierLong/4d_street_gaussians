@@ -15,7 +15,7 @@ cfg.data_device = 'cuda'
 cfg.mode = 'train' 
 cfg.task = 'hello' # task folder name
 cfg.exp_name = 'test' # experiment folder name
-cfg.gpus = [0] # list of gpus to use 
+cfg.gpus = [5, 2, 0] # list of gpus to use 
 cfg.debug = False
 cfg.resume = True # If set to True, resume training from the last checkpoint.
 

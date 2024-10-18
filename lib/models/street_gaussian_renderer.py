@@ -343,20 +343,19 @@ class StreetGaussianRenderer():
                 obj_model: GaussianModelActor = getattr(pc, obj_name)
                 xyz_local = obj_model.get_xyz
                 #xyzs_local.append(xyz_local)
-
                 opacity_obj = obj_model.get_opacity
-                marginal_t = obj_model.get_marginal_t(viewpoint_camera.timestamp)
-                # print(viewpoint_camera.timestamp)
-                opacity_obj = opacity_obj * marginal_t
-                opacity.append(opacity_obj)
-
-                try:
+                
+                if obj_model.gaussian_dim == 4:
+                    marginal_t = obj_model.get_marginal_t(viewpoint_camera.timestamp)
+                    # print(viewpoint_camera.timestamp)
+                    opacity_obj = opacity_obj * marginal_t
                     cov3D_obj, delta_mean = obj_model.get_current_covariance_and_mean_offset(scaling_modifier, viewpoint_camera.timestamp)
-                except:
-                    import ipdb
-                    ipdb.set_trace()
+                    xyz_local = xyz_local + delta_mean
+                else:
+                    cov3D_obj = obj_model.get_covariance(scaling_modifier)
+
+                opacity.append(opacity_obj)
                 cov3D_objs.append(cov3D_obj)
-                xyz_local = xyz_local + delta_mean
                 xyzs_local.append(xyz_local)
                 
             xyzs_local = torch.cat(xyzs_local, dim=0)
@@ -538,20 +537,19 @@ class StreetGaussianRenderer():
                 obj_model: GaussianModelActor = getattr(pc, obj_name)
                 xyz_local = obj_model.get_xyz
                 #xyzs_local.append(xyz_local)
-
                 opacity_obj = obj_model.get_opacity
-                marginal_t = obj_model.get_marginal_t(viewpoint_camera.timestamp)
-                # print(viewpoint_camera.timestamp)
-                opacity_obj = opacity_obj * marginal_t
-                opacity.append(opacity_obj)
-
-                try:
+                
+                if obj_model.gaussian_dim == 4:
+                    marginal_t = obj_model.get_marginal_t(viewpoint_camera.timestamp)
+                    # print(viewpoint_camera.timestamp)
+                    opacity_obj = opacity_obj * marginal_t
                     cov3D_obj, delta_mean = obj_model.get_current_covariance_and_mean_offset(scaling_modifier, viewpoint_camera.timestamp)
-                except:
-                    import ipdb
-                    ipdb.set_trace()
+                    xyz_local = xyz_local + delta_mean
+                else:
+                    cov3D_obj = obj_model.get_covariance(scaling_modifier)
+                
+                opacity.append(opacity_obj)   
                 cov3D_objs.append(cov3D_obj)
-                xyz_local = xyz_local + delta_mean
                 xyzs_local.append(xyz_local)
                 
             xyzs_local = torch.cat(xyzs_local, dim=0)

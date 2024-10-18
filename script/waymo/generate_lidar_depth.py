@@ -16,14 +16,14 @@ def load_calibration(datadir):
     
     intrinsics = []
     extrinsics = []
-    for i in range(5):
+    for i in range(3):
         intrinsic = np.loadtxt(os.path.join(intrinsics_dir,  f"{i}.txt"))
         fx, fy, cx, cy = intrinsic[0], intrinsic[1], intrinsic[2], intrinsic[3]
         intrinsic = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
         intrinsics.append(intrinsic)
         cam_to_ego = np.loadtxt(os.path.join(extrinsics_dir,  f"{i}.txt"))
     
-    for i in range(5):
+    for i in range(3):
         cam_to_ego = np.loadtxt(os.path.join(extrinsics_dir,  f"{i}.txt"))
         extrinsics.append(cam_to_ego)
         
@@ -102,6 +102,8 @@ def generate_lidar_depth(datadir):
                 depth_on_img[depth > 0] = depth_vis[depth > 0]
                 cv2.imwrite(depth_vis_path, depth_on_img)      
         except:
+            import ipdb
+            ipdb.set_trace()
             print(f'error in visualize depth of {image_filename}, depth range: {depth.min()} - {depth.max()}')
     
 

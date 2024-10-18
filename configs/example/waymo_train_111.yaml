@@ -1,6 +1,6 @@
 task: waymo_full_exp
-source_path: /nas/lys_data/data/waymo_23/processed/023
-exp_name: /nas/lys_data/data/waymo_23/waymo_train_023
+source_path: /nas/lys_data/data/waymo_23/processed/111
+exp_name: /nas/lys_data/data/waymo_23/waymo_train_111
 
 data:
   split_test: -1
@@ -26,10 +26,10 @@ model:
     opt_track: true
 
 train:
-  iterations: 50000
-  test_iterations: [7000, 30000, 50000]
-  save_iterations: [10000, 20000, 30000, 40000, 41000, 42000, 43000, 44000, 45000, 46000, 47000, 48000, 49000, 49100, 49200, 49300, 49400, 49500, 49600, 49700, 49800, 49900, 50000]
-  checkpoint_iterations: [10000, 20000, 30000, 40000, 41000, 42000, 43000, 44000, 45000, 46000, 47000, 48000, 49000, 49100, 49200, 49300, 49400, 49500, 49600, 49700, 49800, 49900, 50000]
+  iterations: 45000
+  test_iterations: [7000, 25000, 26000, 27000, 28000, 29000, 30000, 31000, 32000, 33000, 34000, 35000, 36000, 37000, 38000, 39000, 40000, 41000, 42000, 43000, 44000, 45000]
+  save_iterations: [10000, 20000, 30000, 35000, 40000, 41000, 42000, 43000, 44000, 45000]
+  checkpoint_iterations: [10000, 20000, 30000, 40000, 41000, 42000, 43000, 44000, 45000]
 
 optim:
   prune_box_interval: 100

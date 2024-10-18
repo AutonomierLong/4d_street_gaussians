@@ -20,12 +20,6 @@ from lib.utils.graphics_utils import project_numpy
 # with open(castrack_path, 'r') as f:
 #     castrack_infos = json.load(f)
 
-WAYMO_CLASSES = ['unknown', 'Vehicle', 'Pedestrian', 'Sign', 'Cyclist']
-# TODO(ziyu): consider all dynamic classes
-WAYMO_DYNAMIC_CLASSES = ['Vehicle', 'Pedestrian', 'Cyclist']
-WAYMO_HUMAN_CLASSES = ['Pedestrian', 'Cyclist']
-WAYMO_VEHICLE_CLASSES = ['Vehicle']
-
 camera_names_dict = {
     dataset_pb2.CameraName.FRONT_LEFT: 'FRONT_LEFT', 
     dataset_pb2.CameraName.FRONT_RIGHT: 'FRONT_RIGHT',
@@ -466,177 +460,67 @@ def parse_seq_rawdata(process_list, root_dir, seq_name, seq_save_dir, track_file
             print("Processing tracking data done...")
 
     if 'dynamic_mask' in process_list:
-        dynamic_mask_dir = os.path.join(seq_save_dir, "dynamic_masks")
+        print("Saving dynamic mask ...")
+        dynamic_mask_dir = os.path.join(seq_save_dir, "dynamic_mask")
         os.makedirs(dynamic_mask_dir, exist_ok=True)
+        datafile = WaymoDataFileReader(seq_path)
 
-        # 子文件夹名称列表
-        subfolders = ['all', 'human', 'vehicle']
+        for frame_id, frame in tqdm(enumerate(datafile)):
+            masks = dict()
+            for camera_name in camera_names_dict.keys():
+                camera_calibration = utils.get(frame.context.camera_calibrations, camera_name)
+                width, height = camera_calibration.width, camera_calibration.height
+                mask = np.zeros((height, width), dtype=np.uint8)
+                masks[camera_name] = mask
+    
+            for label in frame.laser_labels:
+                box = label.box
+                meta = label.metadata
+                speed = np.linalg.norm([meta.speed_x, meta.speed_y]) 
+                
+                # thresholding, use 1.0 m/s to determine whether the pixel is moving
+                # follow EmerNeRF
+                if speed < 1.:
+                    continue
+                
+                # build 3D bounding box dimension
+                length, width, height = box.length, box.width, box.height
+                
+                # build 3D bounding box pose
+                tx, ty, tz = box.center_x, box.center_y, box.center_z
+                heading = box.heading
+                c = math.cos(heading)
+                s = math.sin(heading)
+                rotz_matrix = np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
 
-        # 在 dynamic_mask 文件夹中创建子文件夹
-        for subfolder in subfolders:
-            print(f"Saving {subfolder} dynamic mask ...")
-            subfolder_path = os.path.join(dynamic_mask_dir, subfolder)
-            os.makedirs(subfolder_path, exist_ok=True)
-            datafile = WaymoDataFileReader(seq_path)
+                obj_pose_vehicle = np.eye(4)
+                obj_pose_vehicle[:3, :3] = rotz_matrix
+                obj_pose_vehicle[:3, 3] = np.array([tx, ty, tz])
 
-            if subfolder == 'all':
-                VALID_CLASSES = WAYMO_DYNAMIC_CLASSES
-            elif subfolder == 'human':
-                VALID_CLASSES = WAYMO_HUMAN_CLASSES
-            elif subfolder == 'vehicle':
-                VALID_CLASSES = WAYMO_VEHICLE_CLASSES
-
-            # if subfolder == 'human':
-            #     import ipdb
-            #     ipdb.set_trace()
-        
-            for frame_id, frame in tqdm(enumerate(datafile)):
-                masks = dict()
                 for camera_name in camera_names_dict.keys():
                     camera_calibration = utils.get(frame.context.camera_calibrations, camera_name)
-                    width, height = camera_calibration.width, camera_calibration.height
-                    mask = np.zeros((height, width), dtype=np.uint8)
-                    masks[camera_name] = mask
-        
-                for label in frame.laser_labels:
-                    class_name = WAYMO_CLASSES[label.type]
-                    if class_name not in VALID_CLASSES:
-                        continue
-
-                    box = label.box
-                    meta = label.metadata
-                    speed = np.linalg.norm([meta.speed_x, meta.speed_y]) 
-                    
-                    # thresholding, use 1.0 m/s to determine whether the pixel is moving
-                    # follow EmerNeRF
-                    if speed < 1.:
-                        continue
-                    
-                    # build 3D bounding box dimension
-                    length, width, height = box.length, box.width, box.height
-                    
-                    # build 3D bounding box pose
-                    tx, ty, tz = box.center_x, box.center_y, box.center_z
-                    heading = box.heading
-                    c = math.cos(heading)
-                    s = math.sin(heading)
-                    rotz_matrix = np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
-
-                    obj_pose_vehicle = np.eye(4)
-                    obj_pose_vehicle[:3, :3] = rotz_matrix
-                    obj_pose_vehicle[:3, 3] = np.array([tx, ty, tz])
-
-                    for camera_name in camera_names_dict.keys():
-                        camera_calibration = utils.get(frame.context.camera_calibrations, camera_name)
-                        # dim = [length * 1.5, width * 1.5, height]
-                        dim = [length, width, height]
-                        vertices, valid = project_label_to_image(
+                    # dim = [length * 1.5, width * 1.5, height]
+                    dim = [length, width, height]
+                    vertices, valid = project_label_to_image(
+                        dim=dim,
+                        obj_pose=obj_pose_vehicle,
+                        calibration=camera_calibration,
+                    )
+                    if valid.any():
+                        mask = project_label_to_mask(
                             dim=dim,
                             obj_pose=obj_pose_vehicle,
                             calibration=camera_calibration,
                         )
-                        if valid.any():
-                            mask = project_label_to_mask(
-                                dim=dim,
-                                obj_pose=obj_pose_vehicle,
-                                calibration=camera_calibration,
-                            )
-                            masks[camera_name] = np.logical_or(
-                                masks[camera_name], mask)
-                
-                for camera_name in camera_names_dict.keys():
-                    mask = masks[camera_name]
-                    mask_path = os.path.join(subfolder_path, f'{frame_id:06d}_{str(camera_name - 1)}.png')
-                    cv2.imwrite(mask_path, (mask * 255).astype(np.uint8))
+                        masks[camera_name] = np.logical_or(
+                            masks[camera_name], mask)
+            
+            for camera_name in camera_names_dict.keys():
+                mask = masks[camera_name]
+                mask_path = os.path.join(dynamic_mask_dir, f'{frame_id:06d}_{str(camera_name - 1)}.png')
+                cv2.imwrite(mask_path, (mask * 255).astype(np.uint8))
 
         print("Saving dynamic mask done...")
-
-    print("Saving instances...")
-    instances_info, frame_instances = {}, {}
-    instances_dir = os.path.join(seq_save_dir, "instances")
-    os.makedirs(instances_dir, exist_ok=True)
-    datafile = WaymoDataFileReader(seq_path)
-    # import ipdb
-    # ipdb.set_trace()
-    for frame_id, frame in tqdm(enumerate(datafile)):
-        frame_instances[frame_id] = []
-        for label in frame.laser_labels:
-            frame_pose = np.array(frame.pose.transform).reshape(4, 4)
-                
-            str_id = str(label.id)
-            if WAYMO_CLASSES[label.type] not in WAYMO_DYNAMIC_CLASSES:
-                continue
-            
-            frame_instances[frame_id].append(str_id)
-            
-            if str_id not in instances_info:
-                instances_info[str_id] = dict(
-                    id=label.id,
-                    # class_ind=l.type,
-                    class_name=WAYMO_CLASSES[label.type],
-                    frame_annotations={
-                        "frame_idx": [],
-                        "obj_to_world": [],
-                        "box_size": [],
-                    }
-                )
-            
-            # https://github.com/waymo-research/waymo-open-dataset/blob/master/waymo_open_dataset/label.proto
-            box = label.box
-            
-            # Box coordinates in vehicle frame.
-            tx, ty, tz = box.center_x, box.center_y, box.center_z
-            
-            # The heading of the bounding box (in radians).  The heading is the angle
-            #   required to rotate +x to the surface normal of the box front face. It is
-            #   normalized to [-pi, pi).
-            c = np.math.cos(box.heading)
-            s = np.math.sin(box.heading)
-            
-            # [object to vehicle]
-            # https://github.com/gdlg/simple-waymo-open-dataset-reader/blob/d488196b3ded6574c32fad391467863b948dfd8e/simple_waymo_open_dataset_reader/utils.py#L32
-            o2v = np.array([
-                [ c, -s,  0, tx],
-                [ s,  c,  0, ty],
-                [ 0,  0,  1, tz],
-                [ 0,  0,  0,  1]])
-            
-            # [object to ENU world]
-            pose = frame_pose @ o2v # o2w = v2w @ o2v
-            
-            # difficulty = l.detection_difficulty_level
-            
-            # tracking_difficulty = l.tracking_difficulty_level
-            
-            # Dimensions of the box. length: dim x. width: dim y. height: dim z.
-            # length: dim_x: along heading; dim_y: verticle to heading; dim_z: verticle up
-            dimension = [box.length, box.width, box.height]
-            
-            instances_info[str_id]['frame_annotations']['frame_idx'].append(frame_id)
-            instances_info[str_id]['frame_annotations']['obj_to_world'].append(pose.tolist())
-            instances_info[str_id]['frame_annotations']['box_size'].append(dimension)
-
-    # Correct ID mapping
-        id_map = {}
-        for i, (k, v) in enumerate(instances_info.items()):
-            id_map[v["id"]] = i
-
-        # Update keys in instances_info
-        new_instances_info = {}
-        for k, v in instances_info.items():
-            new_instances_info[id_map[v["id"]]] = v
-
-        # Update keys in frame_instances
-        new_frame_instances = {}
-        for k, v in frame_instances.items():
-            new_frame_instances[k] = [id_map[i] for i in v]
-
-        # Save instances info and frame instances
-        # object_info_dir = f"{self.save_dir}/{str(file_idx).zfill(3)}/instances"
-        with open(f"{instances_dir}/instances_info.json", "w") as fp:
-            json.dump(new_instances_info, fp, indent=4)
-        with open(f"{instances_dir}/frame_instances.json", "w") as fp:
-            json.dump(new_frame_instances, fp, indent=4)
 
 def main():
     parser = argparse.ArgumentParser()

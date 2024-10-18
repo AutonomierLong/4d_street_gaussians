@@ -46,7 +46,7 @@ class Scene:
             checkpoint_path = os.path.join(cfg.trained_model_dir, f"iteration_{str(self.loaded_iter)}.pth")
             # import ipdb
             # ipdb.set_trace()
-            # checkpoint_path = '/nas/lys_data/4d_street_gaussian/waymo_train_002/trained_model/iteration_20000.pth'
+            # checkpoint_path = '/nas/lys_data/data/waymo_23/waymo_train_447_alternate/trained_model/iteration_30000.pth'
             assert os.path.exists(checkpoint_path)
             state_dict = torch.load(checkpoint_path)
             self.gaussians.load_state_dict(state_dict=state_dict)

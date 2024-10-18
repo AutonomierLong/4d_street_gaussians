@@ -28,12 +28,29 @@ class GaussianModel(nn.Module):
         # spherical harmonics
         default_max_sh_degree = cfg_model.get('sh_degree')
         if self.model_name == 'background':
+            # import ipdb
+            # ipdb.set_trace()
             self.max_sh_degree = cfg_model.get('sh_degree_background', default_max_sh_degree)
+            # self.max_sh_degree = 1
+            # self.active_sh_degree_t = 0
+            # self.max_sh_degree_t = 0
+
         elif self.model_name == 'sky':
             self.max_sh_degree = cfg_model.get('sh_degree_sky', default_max_sh_degree)
+            # self.max_sh_degree = 1
+            # self.active_sh_degree_t = 0
+            # self.max_sh_degree_t = 0
         else:
             self.max_sh_degree = cfg_model.get('sh_degree_obj', default_max_sh_degree)
-        self.active_sh_degree = self.max_sh_degree
+            # self.max_sh_degree = 3
+            # self.active_sh_degree_t = 0
+            # self.max_sh_degree_t = 3
+        self.active_sh_degree = 0
+        self.active_sh_degree_t = 0
+        self.max_sh_degree_t = self.max_sh_degree
+
+        # import ipdb
+        # ipdb.set_trace()
         
         # original gaussian initialization
         self._xyz = torch.empty(0)
@@ -62,8 +79,6 @@ class GaussianModel(nn.Module):
             assert self.gaussian_dim == 4
         self.env_map = torch.empty(0)
 
-        self.active_sh_degree_t = 0
-        self.max_sh_degree_t = self.max_sh_degree
 
         self.setup_functions()
     
@@ -430,10 +445,15 @@ class GaussianModel(nn.Module):
         return scale_flatten_loss
         
     def oneupSHdegree(self):
+        # import ipdb
+        # ipdb.set_trace()
         if self.active_sh_degree < self.max_sh_degree:
             self.active_sh_degree += 1
         elif self.max_sh_degree_t and self.active_sh_degree_t < self.max_sh_degree_t:
             self.active_sh_degree_t += 1
+        print(self.model_name)
+        print(f"Current SH degree: {self.active_sh_degree}")
+        print(f"Current SH degree_t: {self.active_sh_degree_t}")
 
     def training_setup(self):
         args = cfg.optim

@@ -13,7 +13,9 @@ from lib.utils.colmap_utils import read_points3D_binary, read_extrinsics_binary,
 from lib.utils.data_utils import get_val_frames
 from lib.utils.graphics_utils import get_rays, sphere_intersection
 from lib.utils.general_utils import matrix_to_quaternion, quaternion_to_matrix_numpy
-from lib.datasets.base_readers import storePly, get_Sphere_Norm
+from lib.datasets.base_readers import storePly, get_Sphere_Norm, storePly_with_time
+
+from scipy.spatial import KDTree
 
 waymo_track2label = {"vehicle": 0, "pedestrian": 1, "cyclist": 2, "sign": 3, "misc": -1}
 
@@ -45,18 +47,18 @@ def load_camera_info(datadir):
     
     intrinsics = []
     extrinsics = []
-    for i in range(5):
+    for i in range(3):
         intrinsic = np.loadtxt(os.path.join(intrinsics_dir,  f"{i}.txt"))
         fx, fy, cx, cy = intrinsic[0], intrinsic[1], intrinsic[2], intrinsic[3]
         intrinsic = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
         intrinsics.append(intrinsic)
         
-    for i in range(5):
+    for i in range(3):
         cam_to_ego = np.loadtxt(os.path.join(extrinsics_dir,  f"{i}.txt"))
         extrinsics.append(cam_to_ego)
     
     ego_frame_poses = []
-    ego_cam_poses = [[] for i in range(5)]
+    ego_cam_poses = [[] for i in range(3)]
     ego_pose_paths = sorted(os.listdir(ego_pose_dir))
     for ego_pose_path in ego_pose_paths:
         
@@ -74,7 +76,7 @@ def load_camera_info(datadir):
     center_point = np.mean(ego_frame_poses[:, :3, 3], axis=0)
     ego_frame_poses[:, :3, 3] -= center_point # [num_frames, 4, 4]
     
-    ego_cam_poses = [np.array(ego_cam_poses[i]) for i in range(5)]
+    ego_cam_poses = [np.array(ego_cam_poses[i]) for i in range(3)]
     ego_cam_poses = np.array(ego_cam_poses)
     ego_cam_poses[:, :, :3, 3] -= center_point # [5, num_frames, 4, 4]
     return intrinsics, extrinsics, ego_frame_poses, ego_cam_poses
@@ -109,7 +111,7 @@ def make_obj_pose(ego_pose, box_info):
 
 
 
-def get_obj_pose_tracking(datadir, selected_frames, ego_poses, cameras=[0, 1, 2, 3, 4]):
+def get_obj_pose_tracking(datadir, selected_frames, ego_poses, cameras=[0, 1, 2]):
     tracklets_ls = []    
     objects_info = {}
 
@@ -131,7 +133,7 @@ def get_obj_pose_tracking(datadir, selected_frames, ego_poses, cameras=[0, 1, 2,
     start_frame, end_frame = selected_frames[0], selected_frames[1]
 
     image_dir = os.path.join(datadir, 'images')
-    n_cameras = 5
+    n_cameras = 3
     n_images = len(os.listdir(image_dir))
     n_frames = n_images // n_cameras
     n_obj_in_frame = np.zeros(n_frames)
@@ -200,7 +202,7 @@ def get_obj_pose_tracking(datadir, selected_frames, ego_poses, cameras=[0, 1, 2,
         if len(all_obj_idx[0]) > 0:
             obj_world_postions = visible_objects_pose_world[all_obj_idx][:, :3]
             distance = np.linalg.norm(obj_world_postions[0] - obj_world_postions[-1])
-            dynamic = np.any(np.std(obj_world_postions, axis=0) > 0.5) or distance > 2
+            dynamic = np.any(np.std(obj_world_postions, axis=0) > 0.5) or distance >= 0.5 
             if not dynamic:
                 visible_objects_ids[all_obj_idx] = -1.
                 visible_objects_pose_vehicle[all_obj_idx] = -1.
@@ -245,7 +247,7 @@ def get_obj_pose_tracking(datadir, selected_frames, ego_poses, cameras=[0, 1, 2,
     # postprocess object_info   
     for key in objects_info.keys():
         obj = objects_info[key]
-        if obj['class'] == 'pedestrian':
+        if obj['class'] == 'pedestrian' or obj['class'] == 'cyclist':
             obj['deformable'] = True
         else:
             obj['deformable'] = False
@@ -458,12 +460,14 @@ def generate_dataparser_outputs(
         
         points_xyz_dict = dict()
         points_rgb_dict = dict()
+        points_time_dict = dict()
         points_xyz_dict['bkgd'] = []
         points_rgb_dict['bkgd'] = []
         for track_id in object_info.keys():
             print(track_id)
             points_xyz_dict[f'obj_{track_id:03d}'] = []
             points_rgb_dict[f'obj_{track_id:03d}'] = []
+            points_time_dict[f'obj_{track_id:03d}'] = []
 
         print('initialize from sfm pointcloud')
         points_colmap_path = os.path.join(colmap_basedir, 'triangulated/sparse/model/points3D.bin')
@@ -476,6 +480,9 @@ def generate_dataparser_outputs(
         pts2d_dict = np.load(pointcloud_path, allow_pickle=True)['camera_projection'].item()
 
         for i, frame in tqdm(enumerate(range(start_frame, end_frame+1))):
+            # frame_time = frame/(end_frame-start_frame)*10
+            frame_time = frames_timestamps[frame-start_frame]
+            print(f'time:{frame_time}')
             idxs = list(range(i * num_cameras, (i+1) * num_cameras))
             cams_frame = [cams[idx] for idx in idxs]
             image_filenames_frame = [image_filenames[idx] for idx in idxs]
@@ -519,13 +526,19 @@ def generate_dataparser_outputs(
             # filer points in tracking bbox
             points_xyz_obj_mask = np.zeros(points_xyz_vehicle.shape[0], dtype=np.bool_)
 
-            for tracklet in object_tracklets_vehicle[i]:
+            # import ipdb
+            # ipdb.set_trace()
+
+            for tracklet in tqdm(object_tracklets_vehicle[i], desc="Processing tracklets"):
                 track_id = int(tracklet[0])
                 if track_id >= 0:
                     obj_pose_vehicle = np.eye(4)                    
                     obj_pose_vehicle[:3, :3] = quaternion_to_matrix_numpy(tracklet[4:8])
                     obj_pose_vehicle[:3, 3] = tracklet[1:4]
                     vehicle2local = np.linalg.inv(obj_pose_vehicle)
+
+                    # import ipdb
+                    # ipdb.set_trace()
                     
                     points_xyz_obj = points_xyz_vehicle @ vehicle2local.T
                     points_xyz_obj = points_xyz_obj[..., :3]
@@ -538,9 +551,19 @@ def generate_dataparser_outputs(
                     
                     points_xyz_inbbox = inbbox_points(points_xyz_obj, obj_corners_3d_local)
                     points_xyz_obj_mask = np.logical_or(points_xyz_obj_mask, points_xyz_inbbox)
-                    points_xyz_dict[f'obj_{track_id:03d}'].append(points_xyz_obj[points_xyz_inbbox])
-                    points_rgb_dict[f'obj_{track_id:03d}'].append(points_rgb[points_xyz_inbbox])
-        
+
+                    num_points = np.sum(points_xyz_inbbox)
+                    time_array = np.full((num_points, ), frame_time)
+                    
+                    if np.sum(points_xyz_inbbox) != 0:
+                        points_xyz_densified, points_rgb_densified, points_time_densified = densify_point_cloud(points_xyz_obj[points_xyz_inbbox], points_rgb[points_xyz_inbbox], time_array, 250)
+                    
+                        points_xyz_dict[f'obj_{track_id:03d}'].append(points_xyz_densified)
+                        points_rgb_dict[f'obj_{track_id:03d}'].append(points_rgb_densified)
+                        num_points = points_xyz_densified.shape[0]
+                        time_array = np.full((num_points, ), frame_time)
+                        points_time_dict[f'obj_{track_id:03d}'].append(time_array)
+       
             points_lidar_xyz = points_xyz_world[~points_xyz_obj_mask][..., :3]
             points_lidar_rgb = points_rgb[~points_xyz_obj_mask]
             
@@ -571,14 +594,17 @@ def generate_dataparser_outputs(
                     # downsample_points_lidar = points_obj.voxel_down_sample(voxel_size=0.05)
                     # points_xyz = np.asarray(downsample_points_lidar.points).astype(np.float32)
                     # points_rgb = np.asarray(downsample_points_lidar.colors).astype(np.float32)  
+                    points_time = np.concatenate(points_time_dict[k], axis=0)
                     
                     if len(points_xyz) > initial_num_obj:
                         random_indices = np.random.choice(len(points_xyz), initial_num_obj, replace=False)
                         points_xyz = points_xyz[random_indices]
                         points_rgb = points_rgb[random_indices]
+                        points_time = points_time[random_indices]
                         
                     points_xyz_dict[k] = points_xyz
                     points_rgb_dict[k] = points_rgb
+                    points_time_dict[k] = points_time
                 
                 else:
                     raise NotImplementedError()
@@ -623,6 +649,7 @@ def generate_dataparser_outputs(
             
         result['points_xyz_dict'] = points_xyz_dict
         result['points_rgb_dict'] = points_rgb_dict
+        result['points_time_dict'] = points_time_dict
 
         # Sample sky point cloud 
         # if num_cameras < 3:     
@@ -707,10 +734,87 @@ def generate_dataparser_outputs(
             points_xyz = points_xyz_dict[k]
             points_rgb = points_rgb_dict[k]
             ply_path = os.path.join(pointcloud_dir, f'points3D_{k}.ply')
-            try:
-                storePly(ply_path, points_xyz, points_rgb)
-                print(f'saving pointcloud for {k}, number of initial points is {points_xyz.shape}')
-            except:
-                print(f'failed to save pointcloud for {k}')
-                continue
+            # import ipdb
+            # ipdb.set_trace()
+            if k.startswith('obj'):
+                try:
+                    points_time = points_time_dict[k]
+                    storePly_with_time(ply_path, points_xyz, points_rgb, points_time)
+                    print(f'saving pointcloud for {k}, number of initial points is {points_xyz.shape}')
+                except:
+                    import ipdb
+                    ipdb.set_trace()
+                    print(f'failed to save pointcloud for {k}')
+                    continue
+            else:
+                try:
+                    storePly(ply_path, points_xyz, points_rgb)
+                    print(f'saving pointcloud for {k}, number of initial points is {points_xyz.shape}')
+                except:
+                    import ipdb
+                    ipdb.set_trace()
+                    print(f'failed to save pointcloud for {k}')
+                    continue
     return result
+
+
+def compute_density(points_xyz, radius=0.1):
+    tree = KDTree(points_xyz)
+    densities = np.zeros(len(points_xyz))
+
+    for i, point in enumerate(points_xyz):
+        neighbors = tree.query_ball_point(point, radius)  # 获取半径内的邻居
+        densities[i] = len(neighbors)  # 计算邻居的数量
+
+    return densities
+
+def densify_point_cloud(points_xyz, points_rgb, points_time, num_new_points):
+    tree = KDTree(points_xyz)
+    densities = compute_density(points_xyz)
+    
+    # 计算反向权重
+    density_probs = 1 / (densities + 1e-8)  # 添加小常数以防止除零
+    density_probs /= density_probs.sum()  # 归一化权重
+    
+    new_points = []
+    min_z = np.min(points_xyz[:, 2])
+    max_z = np.max(points_xyz[:, 2])
+    min_x = np.min(points_xyz[:, 0])
+    max_x = np.max(points_xyz[:, 0])
+    min_y = np.min(points_xyz[:, 1])
+    max_y = np.max(points_xyz[:, 1])
+
+    for _ in range(num_new_points):
+        # 根据密度采样已有点
+        sampled_index = np.random.choice(len(points_xyz), p=density_probs)
+        sampled_point = points_xyz[sampled_index]
+
+        while sampled_point[0] < min_x or sampled_point[0] > max_x or sampled_point[1] < min_y or sampled_point[1] > max_y or sampled_point[2] < min_z or sampled_point[2] > max_z:
+            sampled_index = np.random.choice(len(points_xyz), p=density_probs)
+            sampled_point = points_xyz[sampled_index]
+        
+        # 在采样点周围生成新点
+        perturbation = np.random.normal(scale=0.05, size=3)  # 添加噪声以生成新点
+        new_point = sampled_point + perturbation
+        
+        num_neighbour = min(5, points_xyz.shape[0])
+        distances, indices = tree.query(new_point, k=num_neighbour)
+        weights = 1 / (distances + 1e-8)
+        weights = np.array(weights)
+        weights /= weights.sum()  # 归一化权重
+
+        # 插值计算颜色和时间
+        try: 
+            interpolated_rgb = np.dot(weights, points_rgb[indices])
+        except:
+            import ipdb
+            ipdb.set_trace()
+        interpolated_time = np.dot(weights, points_time[indices])
+        
+        new_points.append((new_point, interpolated_rgb, interpolated_time))
+
+    # 包含原始点
+    for i in range(len(points_xyz)):
+        new_points.append((points_xyz[i], points_rgb[i], points_time[i]))
+    
+    return np.array([p[0] for p in new_points]), np.array([p[1] for p in new_points]), np.array([p[2] for p in new_points])

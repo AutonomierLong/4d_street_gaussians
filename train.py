@@ -23,6 +23,8 @@ except ImportError:
     TENSORBOARD_FOUND = False
 
 def training():
+    # import ipdb
+    # ipdb.set_trace()
     training_args = cfg.train
     optim_args = cfg.optim
     data_args = cfg.data
@@ -33,8 +35,8 @@ def training():
     gaussians = StreetGaussianModel(dataset.scene_info.metadata)
     scene = Scene(gaussians=gaussians, dataset=dataset)
 
-    # import ipdb
-    # ipdb.set_trace()
+    writer = SummaryWriter(log_dir='/nas/lys_data/data/waymo_23/waymo_train_447_time/runs/densified_pre_frame_500')
+
     gaussians.training_setup()
     try:
         if cfg.loaded_iter == -1:
@@ -290,6 +292,10 @@ def training():
             # Progress bar
             ema_loss_for_log = 0.4 * loss.item() + 0.6 * ema_loss_for_log
             ema_psnr_for_log = 0.4 * psnr(image, gt_image, mask).mean().float() + 0.6 * ema_psnr_for_log
+            
+            writer.add_scalar('Loss/train', ema_loss_for_log, iteration)
+            writer.add_scalar('PSNR/train', ema_psnr_for_log, iteration)
+            
             if viewpoint_cam.id not in psnr_dict:
                 psnr_dict[viewpoint_cam.id] = psnr(image, gt_image, mask).mean().float()
             else:

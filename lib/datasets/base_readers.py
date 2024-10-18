@@ -102,7 +102,7 @@ def fetchPly(path):
     else:
         normals = np.zeros_like(positions)
     if 'time' in vertices:
-        timestamp = vertices['time'][:, None]
+        timestamp = vertices['time']
     else:
         timestamp = None
     return BasicPointCloud(points=positions, colors=colors, normals=normals, time=timestamp)
@@ -120,6 +120,30 @@ def storePly(path, xyz, rgb):
 
     elements = np.empty(xyz.shape[0], dtype=dtype)
     attributes = np.concatenate((xyz, normals, rgb), axis=1)
+    elements[:] = list(map(tuple, attributes))
+
+    # Create the PlyData object and write to file
+    vertex_element = PlyElement.describe(elements, 'vertex')
+    ply_data = PlyData([vertex_element])
+    ply_data.write(path)
+
+def storePly_with_time(path, xyz, rgb, time):
+    # set rgb to 0 - 255
+    if rgb.max() <= 1. and rgb.min() >= 0:
+        rgb = np.clip(rgb * 255, 0., 255.)
+    # Define the dtype for the structured array
+    dtype = [('x', 'f4'), ('y', 'f4'), ('z', 'f4'),
+            ('nx', 'f4'), ('ny', 'f4'), ('nz', 'f4'),
+            ('red', 'u1'), ('green', 'u1'), ('blue', 'u1'), 
+            ('time', 'f4')]
+    
+    normals = np.zeros_like(xyz)
+
+    if time.ndim == 1:
+        time = time[:, np.newaxis] # convert to 2D if it's 1D.
+
+    elements = np.empty(xyz.shape[0], dtype=dtype)
+    attributes = np.concatenate((xyz, normals, rgb, time), axis=1)
     elements[:] = list(map(tuple, attributes))
 
     # Create the PlyData object and write to file
