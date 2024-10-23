@@ -47,18 +47,18 @@ def load_camera_info(datadir):
     
     intrinsics = []
     extrinsics = []
-    for i in range(3):
+    for i in range(5):
         intrinsic = np.loadtxt(os.path.join(intrinsics_dir,  f"{i}.txt"))
         fx, fy, cx, cy = intrinsic[0], intrinsic[1], intrinsic[2], intrinsic[3]
         intrinsic = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
         intrinsics.append(intrinsic)
         
-    for i in range(3):
+    for i in range(5):
         cam_to_ego = np.loadtxt(os.path.join(extrinsics_dir,  f"{i}.txt"))
         extrinsics.append(cam_to_ego)
     
     ego_frame_poses = []
-    ego_cam_poses = [[] for i in range(3)]
+    ego_cam_poses = [[] for i in range(5)]
     ego_pose_paths = sorted(os.listdir(ego_pose_dir))
     for ego_pose_path in ego_pose_paths:
         
@@ -76,7 +76,7 @@ def load_camera_info(datadir):
     center_point = np.mean(ego_frame_poses[:, :3, 3], axis=0)
     ego_frame_poses[:, :3, 3] -= center_point # [num_frames, 4, 4]
     
-    ego_cam_poses = [np.array(ego_cam_poses[i]) for i in range(3)]
+    ego_cam_poses = [np.array(ego_cam_poses[i]) for i in range(5)]
     ego_cam_poses = np.array(ego_cam_poses)
     ego_cam_poses[:, :, :3, 3] -= center_point # [5, num_frames, 4, 4]
     return intrinsics, extrinsics, ego_frame_poses, ego_cam_poses
@@ -111,7 +111,7 @@ def make_obj_pose(ego_pose, box_info):
 
 
 
-def get_obj_pose_tracking(datadir, selected_frames, ego_poses, cameras=[0, 1, 2]):
+def get_obj_pose_tracking(datadir, selected_frames, ego_poses, cameras=[0, 1, 2, 3, 4]):
     tracklets_ls = []    
     objects_info = {}
 
